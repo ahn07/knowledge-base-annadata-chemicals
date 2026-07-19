@@ -43,6 +43,19 @@ export default function ProductManager() {
     [products]
   );
 
+  async function parseJsonResponse(response) {
+    const text = await response.text();
+    if (!text) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {};
+    }
+  }
+
   async function loadProducts({ showLoading = true } = {}) {
     if (showLoading) {
       setIsLoading(true);
@@ -51,7 +64,7 @@ export default function ProductManager() {
 
     try {
       const response = await fetch("/api/products", { cache: "no-store" });
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data.error || "Unable to fetch products.");
@@ -121,7 +134,7 @@ export default function ProductManager() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data.error || "Unable to save product.");
@@ -149,7 +162,7 @@ export default function ProductManager() {
       const response = await fetch(`/api/products/${product.id}`, {
         method: "DELETE",
       });
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data.error || "Unable to delete product.");

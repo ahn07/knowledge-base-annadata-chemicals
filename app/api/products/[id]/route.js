@@ -1,8 +1,51 @@
 import { NextResponse } from "next/server";
-import { normalizeProduct, readProducts, writeProducts } from "../../../../lib/productsStore";
+import prisma from "../../../../lib/prisma";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function normalizeProduct(input) {
+  const name = String(input.name ?? input.productName ?? "").trim();
+  const category = String(input.category ?? "General").trim();
+  const unit = String(input.unit ?? "unit").trim();
+  const costPrice = Number(input.costPrice ?? input.price ?? NaN);
+  const sellingPrice = Number(input.sellingPrice ?? input.price ?? NaN);
+  const stock = Number.isFinite(Number(input.stock)) ? Number(input.stock) : 0;
+
+  if (!name) {
+    return { error: "Product name is required." };
+  }
+
+  if (!category) {
+    return { error: "Product category is required." };
+  }
+
+  if (!unit) {
+    return { error: "Product unit is required." };
+  }
+
+  if (!Number.isFinite(costPrice) || costPrice < 0) {
+    return { error: "Cost price must be a valid non-negative number." };
+  }
+
+  if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
+    return { error: "Selling price must be a valid non-negative number." };
+  }
+
+  if (!Number.isInteger(stock) || stock < 0) {
+    return { error: "Stock must be a valid non-negative integer." };
+  }
+
+  return {
+    product: {
+      name,
+      category,
+      unit,
+      costPrice,
+      sellingPrice,
+      stock,
+    },
+  };
+}
 
 export async function PUT(request, context) {
   const { id } = await context.params;
@@ -13,35 +56,29 @@ export async function PUT(request, context) {
     return NextResponse.json({ error }, { status: 400 });
   }
 
-  const products = await readProducts();
-  const index = products.findIndex((item) => item.id === id);
+  const existingProduct = await prisma.product.findUnique({ where: { id } });
 
-  if (index === -1) {
+  if (!existingProduct) {
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
-  const updatedProduct = {
-    ...products[index],
-    ...product,
-    updatedAt: new Date().toISOString(),
-  };
-
-  products[index] = updatedProduct;
-  await writeProducts(products);
+  const updatedProduct = await prisma.product.update({
+    where: { id },
+    data: product,
+  });
 
   return NextResponse.json({ product: updatedProduct });
 }
 
 export async function DELETE(_request, context) {
   const { id } = await context.params;
-  const products = await readProducts();
-  const remainingProducts = products.filter((item) => item.id !== id);
+  const existingProduct = await prisma.product.findUnique({ where: { id } });
 
-  if (remainingProducts.length === products.length) {
+  if (!existingProduct) {
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
-  await writeProducts(remainingProducts);
+  await prisma.product.delete({ where: { id } });
 
   return NextResponse.json({ success: true });
 }

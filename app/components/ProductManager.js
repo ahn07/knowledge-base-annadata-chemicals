@@ -1,13 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
-const emptyForm = {
-  productName: "",
-  price: "",
-  supplierName: "",
-  date: "",
-};
+import { useMemo, useState } from "react";
 
 function formatDate(value) {
   if (!value) {
@@ -26,241 +19,230 @@ function formatCurrency(value) {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(Number(value) || 0);
 }
 
-export default function ProductManager() {
-  const [products, setProducts] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+const sortOptions = [
+  { value: "name", label: "Name" },
+  { value: "price", label: "Price" },
+  { value: "stock", label: "Stock" },
+  { value: "updated", label: "Updated" },
+];
+
+export default function ProductManager({ initialRates = [] }) {
+  const [rates] = useState(initialRates || []);
+  const [search, setSearch] = useState("");
+  const [sortField, setSortField] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [isLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const totalValue = useMemo(
-    () => products.reduce((sum, product) => sum + Number(product.price || 0), 0),
-    [products]
-  );
+  const sortedRates = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  async function parseJsonResponse(response) {
-    const text = await response.text();
-    if (!text) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      return {};
-    }
-  }
-
-  async function loadProducts({ showLoading = true } = {}) {
-    if (showLoading) {
-      setIsLoading(true);
-    }
-    setError("");
-
-    try {
-      const response = await fetch("/api/products", { cache: "no-store" });
-      const data = await parseJsonResponse(response);
-
-      if (!response.ok) {
-        throw new Error(data.error || "Unable to fetch products.");
-      }
-
-      setProducts(data.products);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      loadProducts({ showLoading: false });
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, []);
-
-  function openAddModal() {
-    setEditingProduct(null);
-    setForm(emptyForm);
-    setError("");
-    setIsModalOpen(true);
-  }
-
-  function openEditModal(product) {
-    setEditingProduct(product);
-    setForm({
-      productName: product.productName,
-      price: String(product.price),
-      supplierName: product.supplierName,
-      date: product.date || "",
+    const filtered = rates.filter((rate) => {
+      return [rate.name, rate.category, rate.unit]
+        .filter(Boolean)
+        .some((field) => field.toLowerCase().includes(query));
     });
-    setError("");
-    setIsModalOpen(true);
-  }
 
-  function closeModal() {
-    if (isSaving) {
-      return;
-    }
+    return filtered.sort((a, b) => {
+      const direction = sortOrder === "asc" ? 1 : -1;
 
-    setIsModalOpen(false);
-    setEditingProduct(null);
-    setForm(emptyForm);
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setIsSaving(true);
-    setError("");
-
-    const payload = {
-      ...form,
-      price: Number(form.price),
-    };
-
-    const url = editingProduct ? `/api/products/${editingProduct.id}` : "/api/products";
-    const method = editingProduct ? "PUT" : "POST";
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await parseJsonResponse(response);
-
-      if (!response.ok) {
-        throw new Error(data.error || "Unable to save product.");
+      if (sortField === "price") {
+        return (Number(a.sellingPrice) - Number(b.sellingPrice)) * direction;
       }
 
-      await loadProducts();
-      closeModal();
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setIsSaving(false);
+      if (sortField === "stock") {
+        return (Number(a.stock) - Number(b.stock)) * direction;
+      }
+
+      if (sortField === "updated") {
+        return (new Date(a.createdAt) - new Date(b.createdAt)) * direction;
+      }
+
+      return a.name.localeCompare(b.name) * direction;
+    });
+  }, [rates, search, sortField, sortOrder]);
+
+  const exportDisabled = isLoading || sortedRates.length === 0;
+
+  async function handleExportPdf() {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const autoTableModule = await import("jspdf-autotable");
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const headers = [["Product", "Category", "Unit", "Cost", "Selling price", "Stock", "Updated"]];
+      const rows = sortedRates.map((rate) => [
+        rate.name,
+        rate.category,
+        rate.unit,
+        formatCurrency(rate.costPrice),
+        formatCurrency(rate.sellingPrice),
+        rate.stock,
+        formatDate(rate.createdAt),
+      ]);
+
+      doc.setFontSize(18);
+      doc.text("Rate List", 40, 40);
+      autoTableModule.default(doc, {
+        head: headers,
+        body: rows,
+        startY: 70,
+        theme: "striped",
+        headStyles: { fillColor: [15, 23, 42], textColor: "#ffffff", halign: "left" },
+        styles: { font: "helvetica", fontSize: 9, cellPadding: 6 },
+      });
+      doc.save(`rate-list-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (exportError) {
+      console.error(exportError);
+      alert("Unable to export PDF. Please retry.");
     }
   }
 
-  async function handleDelete(product) {
-    const shouldDelete = window.confirm(`Delete ${product.productName}?`);
-
-    if (!shouldDelete) {
-      return;
-    }
-
-    setError("");
-
+  async function handleExportExcel() {
     try {
-      const response = await fetch(`/api/products/${product.id}`, {
-        method: "DELETE",
-      });
-      const data = await parseJsonResponse(response);
-
-      if (!response.ok) {
-        throw new Error(data.error || "Unable to delete product.");
-      }
-
-      setProducts((currentProducts) => currentProducts.filter((item) => item.id !== product.id));
-    } catch (requestError) {
-      setError(requestError.message);
+      const XLSX = await import("xlsx");
+      const sheetData = [
+        ["Product", "Category", "Unit", "Cost", "Selling price", "Stock", "Updated"],
+        ...sortedRates.map((rate) => [
+          rate.name,
+          rate.category,
+          rate.unit,
+          formatCurrency(rate.costPrice),
+          formatCurrency(rate.sellingPrice),
+          rate.stock,
+          formatDate(rate.createdAt),
+        ]),
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Rate List");
+      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `rate-list-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      console.error(exportError);
+      alert("Unable to export Excel file. Please retry.");
     }
   }
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
-          <p className="text-xs font-bold uppercase tracking-widest text-steel">Entries</p>
-          <p className="mt-2 text-3xl font-bold text-ink">{products.length}</p>
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-ink">Rate list</p>
+            <h2 className="mt-3 text-3xl font-bold text-ink">Live product rates</h2>
+            <p className="mt-2 max-w-2xl text-sm text-steel">
+              Search and sort the current rate table fetched from `/api/rates`.
+            </p>
+          </div>
+
+          <div className="grid w-full gap-3 sm:max-w-md sm:grid-cols-[1fr_auto]">
+            <label className="block">
+              <span className="sr-only">Search rates</span>
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by product, category, or unit"
+                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
+              />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select
+                value={sortField}
+                onChange={(event) => setSortField(event.target.value)}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortOrder((current) => (current === "asc" ? "desc" : "asc"))}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-ink transition hover:bg-slate-100"
+              >
+                {sortOrder === "asc" ? "Asc" : "Desc"}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
-          <p className="text-xs font-bold uppercase tracking-widest text-steel">Total listed value</p>
-          <p className="mt-2 text-3xl font-bold text-ink">{formatCurrency(totalValue)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
-          <p className="text-xs font-bold uppercase tracking-widest text-steel">Mode</p>
-          <p className="mt-2 text-3xl font-bold text-ink">CRUD</p>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={exportDisabled}
+            onClick={handleExportPdf}
+            className="rounded-2xl border border-ink bg-ink px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-950"
+          >
+            Export PDF
+          </button>
+          <button
+            type="button"
+            disabled={exportDisabled}
+            onClick={handleExportExcel}
+            className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-ink transition disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-100"
+          >
+            Export Excel
+          </button>
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white shadow-soft">
-        <div className="flex flex-col gap-4 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-ink">Product Rate List</h2>
-            <p className="mt-1 text-sm text-steel">Add, edit, delete, and track supplier pricing.</p>
-          </div>
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="rounded-md bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-700"
-          >
-            Add Product
-          </button>
-        </div>
-
-        {error ? (
-          <div className="m-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-soft">
+        {rates.length === 0 ? (
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            No rate data is available yet.
           </div>
         ) : null}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-slate-900 text-white">
+          <table className="min-w-[760px] w-full text-left text-sm">
+            <thead className="bg-slate-950 text-white">
               <tr>
-                <th className="px-4 py-4 font-semibold">Product Name</th>
-                <th className="px-4 py-4 font-semibold">Price</th>
-                <th className="px-4 py-4 font-semibold">Supplier Name</th>
-                <th className="px-4 py-4 font-semibold">Date</th>
-                <th className="px-4 py-4 text-right font-semibold">Actions</th>
+                <th className="px-4 py-4 font-semibold">Product</th>
+                <th className="px-4 py-4 font-semibold">Category</th>
+                <th className="px-4 py-4 font-semibold">Unit</th>
+                <th className="px-4 py-4 font-semibold">Cost</th>
+                <th className="px-4 py-4 font-semibold">Selling price</th>
+                <th className="px-4 py-4 font-semibold">Stock</th>
+                <th className="px-4 py-4 font-semibold">Updated</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-10 text-center text-steel">
-                    Loading products...
+                  <td colSpan="7" className="px-4 py-10 text-center text-slate-500">
+                    Loading rate list...
                   </td>
                 </tr>
-              ) : products.length === 0 ? (
+              ) : sortedRates.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-10 text-center text-steel">
-                    No product entries yet. Add your first rate.
+                  <td colSpan="7" className="px-4 py-10 text-center text-slate-500">
+                    No rates match your search.
                   </td>
                 </tr>
               ) : (
-                products.map((product) => (
-                  <tr key={product.id} className="transition hover:bg-mist">
-                    <td className="px-4 py-4 font-bold text-ink">{product.productName}</td>
-                    <td className="px-4 py-4 text-steel">{formatCurrency(product.price)}</td>
-                    <td className="px-4 py-4 text-steel">{product.supplierName}</td>
-                    <td className="px-4 py-4 text-steel">{formatDate(product.date)}</td>
-                    <td className="px-4 py-4">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(product)}
-                          className="rounded-md border border-slate-300 px-3 py-2 text-xs font-bold text-ink transition hover:bg-slate-100"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(product)}
-                          className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
+                sortedRates.map((rate) => (
+                  <tr key={rate.id} className="transition hover:bg-slate-50">
+                    <td className="px-4 py-4 font-semibold text-ink">{rate.name}</td>
+                    <td className="px-4 py-4 text-steel">{rate.category}</td>
+                    <td className="px-4 py-4 text-steel">{rate.unit}</td>
+                    <td className="px-4 py-4 text-steel">{formatCurrency(rate.costPrice)}</td>
+                    <td className="px-4 py-4 font-semibold text-ink">{formatCurrency(rate.sellingPrice)}</td>
+                    <td className="px-4 py-4 text-steel">{rate.stock}</td>
+                    <td className="px-4 py-4 text-steel">{formatDate(rate.createdAt)}</td>
                   </tr>
                 ))
               )}
@@ -268,95 +250,6 @@ export default function ProductManager() {
           </table>
         </div>
       </div>
-
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/55 px-4 py-6">
-          <div className="w-full max-w-xl rounded-lg bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-slate-200 p-5">
-              <div>
-                <h2 className="text-xl font-bold text-ink">
-                  {editingProduct ? "Edit Product Entry" : "Add Product Entry"}
-                </h2>
-                <p className="mt-1 text-sm text-steel">Keep supplier pricing clean and current.</p>
-              </div>
-              <button
-                type="button"
-                onClick={closeModal}
-                className="rounded-md px-3 py-2 text-sm font-bold text-steel transition hover:bg-slate-100"
-              >
-                Close
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="grid gap-4 p-5">
-              <label className="grid gap-2">
-                <span className="text-sm font-bold text-ink">Product Name</span>
-                <input
-                  value={form.productName}
-                  onChange={(event) => setForm({ ...form, productName: event.target.value })}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
-                  placeholder="Magnesium Sulphate"
-                  required
-                />
-              </label>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="text-sm font-bold text-ink">Price (₹)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.price}
-                    onChange={(event) => setForm({ ...form, price: event.target.value })}
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
-                    placeholder="1200"
-                    required
-                  />
-                </label>
-
-                <label className="grid gap-2">
-                  <span className="text-sm font-bold text-ink">Date</span>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(event) => setForm({ ...form, date: event.target.value })}
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
-                  />
-                </label>
-              </div>
-
-              <label className="grid gap-2">
-                <span className="text-sm font-bold text-ink">Supplier Name</span>
-                <input
-                  value={form.supplierName}
-                  onChange={(event) => setForm({ ...form, supplierName: event.target.value })}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-ink focus:ring-2 focus:ring-ink/10"
-                  placeholder="Supplier or company name"
-                  required
-                />
-              </label>
-
-              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-bold text-ink transition hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="rounded-md bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSaving ? "Saving..." : editingProduct ? "Update Product" : "Add Product"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

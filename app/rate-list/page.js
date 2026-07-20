@@ -1,13 +1,20 @@
 import Footer from "../components/Footer";
 import Navbar from "../components/Navbar";
 import ProductManager from "../components/ProductManager";
+import prisma from "../../lib/prisma";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Rate List | Annadata kisan pvt ltd , ujjain",
   description: "Manage product prices, suppliers, and dates for Annadata kisan pvt ltd , ujjain.",
 };
 
-export default function RateListPage() {
+export default async function RateListPage() {
+  const rates = await prisma.product.findMany({
+    orderBy: { name: "asc" },
+  });
+
   return (
     <>
       <Navbar />
@@ -19,18 +26,18 @@ export default function RateListPage() {
               <div>
                 <h1 className="text-4xl font-bold md:text-5xl">Product Rate List</h1>
                 <p className="mt-4 max-w-2xl leading-7 text-white/72">
-                  Maintain product prices, supplier details, and rate dates in one clean table.
+                  Browse the current rate list managed through the admin product database with search and sorting controls.
                 </p>
               </div>
               <div className="rounded-lg border border-white/15 bg-white/10 p-4 text-sm leading-6 text-white/75">
-                API routes available: GET, POST, PUT, and DELETE under /api/products.
+                Rates are sourced from the admin-managed product catalog.
               </div>
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <ProductManager />
+          <ProductManager initialRates={rates} />
         </section>
       </main>
       <Footer />

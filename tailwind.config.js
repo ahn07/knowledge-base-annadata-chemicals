@@ -6,6 +6,9 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["Inter", "system-ui", "sans-serif"],
+      },
       colors: {
         ink: "#17212b",
         steel: "#4b6478",
@@ -17,6 +20,10 @@ module.exports = {
       },
       boxShadow: {
         soft: "0 18px 45px rgba(23, 33, 43, 0.08)",
+      },
+      borderRadius: {
+        xl: "1.5rem",
+        '2xl': "2rem",
       },
     },
   },

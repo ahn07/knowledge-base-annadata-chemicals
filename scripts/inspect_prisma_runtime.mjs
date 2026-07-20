@@ -1,0 +1,11 @@
+import { getPrismaClient } from '@prisma/client/runtime/client';
+console.log('getPrismaClient type', typeof getPrismaClient);
+console.log('getPrismaClient name', getPrismaClient.name);
+console.log('getPrismaClient length', getPrismaClient.length);
+const client = getPrismaClient();
+console.log('client type', typeof client);
+console.log('client keys', Object.keys(client).slice(0,30));
+console.log('has user', Object.prototype.hasOwnProperty.call(client, 'user'));
+console.log('user', client.user);
+console.log('has product', Object.prototype.hasOwnProperty.call(client, 'product'));
+console.log('product', client.product);

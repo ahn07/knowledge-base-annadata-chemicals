@@ -1,9 +1,13 @@
 import ChemicalCard from "./components/ChemicalCard";
 import ComparisonTable from "./components/ComparisonTable";
+import FeaturedProducts from "./components/FeaturedProducts";
 import Footer from "./components/Footer";
 import Navbar from "./components/Navbar";
 import SectionBlock from "./components/SectionBlock";
+import prisma from "../lib/prisma";
 import { chemicals, comparisonRows, platformStats } from "../lib/chemicals";
+
+export const dynamic = "force-dynamic";
 
 function HeroIcon({ children }) {
   return (
@@ -13,7 +17,11 @@ function HeroIcon({ children }) {
   );
 }
 
-export default function Home() {
+export default async function Home() {
+  const products = await prisma.product.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+
   return (
     <>
       <Navbar />
@@ -98,6 +106,8 @@ export default function Home() {
           >
             <ComparisonTable rows={comparisonRows} />
           </SectionBlock>
+
+          <FeaturedProducts products={products} />
 
           <SectionBlock
             id="economics"
